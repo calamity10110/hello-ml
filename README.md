@@ -136,7 +136,33 @@ async fn main() -> io::Result<()> {
 }
 
 
-6. Build and Run the Project: After saving all the files, you can build and run the project by running:
+6. Build and Run the Project: 
+Install additional python dependencies (assuming you already have pytorch installed) used in export.py and tokenizer.py:
+
+pip install -r requirements.txt
+Download the .safetensors and config.json files from the original model's page on huggingface (So we don't have to clone the pytorch repo). For multimodal models (PHI3.5 Vision), we also need the CLIP .config file.
+
+Use the export.py script to convert the model bfloat16 weights into the LMRS format:
+
+python export.py --files [ordered .safetensor files] --config [model config.json] --save-path [name and path to save] --type [model type (GEMMA/LLAMA/PHI)]
+To export the quantized version use the --quantize and --quantize-type flags. The int8 quantized model size should be 4X smaller (from ~9.8G to ~2.5G, depending on the group size). For multimodal models include the --vision-config argument.
+
+Use the tokenizer.py script to convert the tokenizer model into the LMRS tokenizer format:
+
+python tokenizer.py --model-id [huggingface model_id] --tokenizer-type [type of the tokenizer (GEMMA/LLAMA/PHI)]
+
+Build
+
+Compile the rust code with cargo (make sure to pass the target-cpu flag):
+
+To run the backend for the WebUI, first compile:
+
+RUSTFLAGS="-C target-cpu=native" cargo build --release --features all --bin backend
+
+then start the model by running:
+./target/release/backend --model [model weights file]
+
+
 
 cargo run
 
@@ -144,7 +170,58 @@ This will start both the lm.rs backend server and the aichat client. The client 
 
 
 
-Conclusion:
+🌃 Now supporting multimodality with PHI-3.5-vision model! PHI-3.5-mini text-only model also now supported.
 
-By following these steps, you'll have a fully functional project that integrates lm.rs with aichat, allowing communication between a backend server (processing embeddings) and a client generating responses.
+Inspired by Karpathy's llama2.c and llm.c I decided to create the most minimal code (not so minimal atm) that can perform full inference on Language Models on the CPU without ML libraries. Previously only Google's Gemma 2 models were supported, but I decided to add support for the new Llama 3.2 models, and more recently the option to use images with PHI-3.5.
 
+News: Implemented batch processing, boosting the image encoding speed by up to ~3x. Llama 3.2 1B now runs at 50 tok/s on my 16-core machine.
+
+Disclaimer: Some of the code could be optimized and improved. This is just an excuse for me to write Rust for the first time. Isn't it incredible that in a few years, we could have AGI running in a few lines of poorly written Rust code?
+
+Prepared models
+Some benchmarks and download links for the models and tokenizers. I recommend using Q8_0, Q4_0 quantization still being improved. Speed measured on a 16-core AMD Epyc.
+
+Model	Size	Speed
+Gemma 2 2B IT Q4_0	1.39G	20 tok/s
+Gemma 2 2B IT Q8_0	2.66GB	24 tok/s
+Gemma 2 9B IT Q4_0	4.91GB	7 tok/s
+Gemma 2 9B IT Q8_0	9.53GB	8 tok/s
+Llama 3.2 1B IT	4.94GB	21 tok/s
+Llama 3.2 1B IT Q8_0	1.27GB	50 tok/s
+Llama 3.2 3B IT Q4_0	1.71GB	17 tok/s
+Llama 3.2 3B IT Q8_0	3.31GB	19 tok/s
+PHI 3.5 IT Vision Q8_0	4.28GB	17 tok/s
+PHI 3.5 IT Mini Q8_0	3.94GB	18 tok/s
+
+Instructions for starting lm.rs
+
+You can download the prepared quantized model and tokenizer model files in the lmrs format from huggingface. If you'd prefer to convert the models published by Google/Meta on huggingface yourself, please refer to the following section. Otherwise, you can skip ahead to the build section.
+
+Model Conversion
+Install additional python dependencies (assuming you already have pytorch installed) used in export.py and tokenizer.py:
+
+pip install -r requirements.txt
+Download the .safetensors and config.json files from the original model's page on huggingface (So we don't have to clone the pytorch repo). For multimodal models (PHI3.5 Vision), we also need the CLIP .config file.
+
+Use the export.py script to convert the model bfloat16 weights into the LMRS format:
+
+python export.py --files [ordered .safetensor files] --config [model config.json] --save-path [name and path to save] --type [model type (GEMMA/LLAMA/PHI)]
+To export the quantized version use the --quantize and --quantize-type flags. The int8 quantized model size should be 4X smaller (from ~9.8G to ~2.5G, depending on the group size). For multimodal models include the --vision-config argument.
+
+Use the tokenizer.py script to convert the tokenizer model into the LMRS tokenizer format:
+
+python tokenizer.py --model-id [huggingface model_id] --tokenizer-type [type of the tokenizer (GEMMA/LLAMA/PHI)]
+
+Build
+
+Compile the rust code with cargo (make sure to pass the target-cpu flag):
+
+To run the backend for the WebUI, first compile:
+
+RUSTFLAGS="-C target-cpu=native" cargo build --release --features multimodal --features backend --bin backend
+
+You can change the ip and port with --ip and --port. Other flags such as temperature, etc. are also available. For multimodal compatibility use the --multimodal flag. You can now connect via the web interface.
+
+then run:
+
+./target/release/backend --model [model weights file]
